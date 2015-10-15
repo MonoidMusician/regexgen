@@ -890,26 +890,25 @@ class ConnectionMap(object):
             for i in rest:
                 if i[1] == initial[i[0]][0]:
                     continue
-                # Take a ref whether we add it or not:
-                refs_taken = 1
-                other = (k for k in self.types if k != i[0])
-                for k in other:
-                    assert len(matches[k]) == len(refs_left[k])
-                    refs_taken *= len(matches[k])
-                refs_left[i[0]].append(i[2]-refs_taken)
-                for k in refs_left:
-                    if k == i[0]: continue
-                    refL = refs_left[k]
-                    for j in range(len(refL)):
-                        refL[j] -= 1
-                        if not refL[j]:
-                            if debug.EXTRA_DEBUG: debug.prnt("referenced break")
-                            _break = True; break
-                    if _break: break
                 # Test if we can add it:
                 if self.test_addition(matches, i):
                     matches[i[0]].append(i[1])
                     if debug.EXTRA_DEBUG: debug.dump(locals(), "matches", "refs_left")
+                    refs_taken = 1
+                    other = (k for k in self.types if k != i[0])
+                    for k in other:
+                        assert len(matches[k]) == len(refs_left[k])
+                        refs_taken *= len(matches[k])
+                    refs_left[i[0]].append(i[2]-refs_taken)
+                    for k in refs_left:
+                        if k == i[0]: continue
+                        refL = refs_left[k]
+                        for j in range(len(refL)):
+                            refL[j] -= 1
+                            if not refL[j]:
+                                if debug.EXTRA_DEBUG: debug.prnt("referenced break")
+                                _break = True; break
+                        if _break: break
                 elif _break and debug.EXTRA_DEBUG: debug.dump(locals(), "refs_left")
                 if _break: break
             if debug.EXTRA_DEBUG: debug.prnt("end iter rest")
