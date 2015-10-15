@@ -184,56 +184,20 @@ def chop(rev, word_list):
 def get_ends(string, sz):
     return string[:sz],string[-sz:]
 
-# This optimizes a list of children by finding common sets of
-# prefixes, children lists, and postfixes (collectively "nodes")
-# such that all permutations of such are found as Switches
-# (aka "connections"). The children are fused together and the
-# pre-/postfixes are made into a Switch().
-#
-# Note that this has very limited results, including none on
-# --special=builtin_functions even. Most common cases that
-# are optimized occur when there's an easy catch like:
-#   compile rotate uncompile unrotate
-# (output would be: "(un)?(compile|rotate)"), so basically
-# two or more side-by-side Switches.
-def optimize(children):
-    global debug
-    if not OPTIMIZE or len(children) <= 1:
-        return debug.cancelcall("optimize", locals(), "children")
-    for i in children:
-        if not i.issimple(): break
-    else: 
-        return debug.cancelcall("optimize", locals(), "children")
-    debug.call("optimize", locals(), "children")
-    optimizeur = ConnectionMap(children)
-    other_connection_maps = optimizeur.split()
-    optimized = list()
-    for e in other_connection_maps:
-        #assert len(e) > 1
-        element = Switch()
-        element.children = [k for i in e.children for k in i]
-        if OPTIMIZE == -1: element.children = optimize(element.children)
-        if len(e.prefixes) > 1:
-            element.prefix  = Switch([i for i in e.prefixes if type(i) == str])
-            element.prefix.children.extend( (i for i in e.prefixes if type(i) != str) )
-            if OPTIMIZE == -1: element.prefix.children = optimize(element.prefix.children)
-        else: element.prefix = list(e.prefixes)[0]
-        if len(e.postfixes) > 1:
-            element.postfix = Switch([i for i in e.postfixes if type(i) == str])
-            element.postfix.children.extend((i for i in e.postfixes if type(i) != str))
-            if OPTIMIZE == -1: element.postfix.children = optimize(element.postfix.children)
-        else: element.postfix = list(e.postfixes)[0]
-        if debug.EXTRA_DEBUG: debug.dump(locals(), "element")
-        optimized.append(element)
-    if optimized:
-        debug.dump(locals(), "optimized")
-        if OPTIMIZE == -1:
-            children2 = optimize(optimized)
-        else:
-            children2 = optimized
-        children2.extend(optimizeur.connections) # what is left after making other groups of connections
-    else: children2 = optimizeur.connections
-    return debug.ret(children2)
+# Configuration (note: metachars need to be escaped):
+class regex:
+    # Standard grouping: (word1|word2)
+    pre = R"\("
+    sep = R"\|"
+    post = R"\)"
+    # Character classes: [gs]
+    pre2 = R"\["
+    post2 = R"\]"
+    sep2 = '' # dummy
+    # Make the last group, char class, or char optional:
+    opt = R"\?"
+
+
 
 # This groups words together based on common prefixes/postfixes,
 # aiming to capture several groups of words with the most in common.
@@ -256,6 +220,7 @@ def filter_list(wordlist_left):
     # to get the longest possible prefix or postfix (the one with more
     # matches is used).
     max_size = len(wordlist_left[-1])
+    # But if only using the first character, we actually only want 1:
     existing = [None,None]
     # This is the actual countdown
     for i in reversed(range(1,max_size)):
@@ -322,18 +287,56 @@ def filter_list(wordlist_left):
     debug.tailcall()
     return optimize(children)
 
-# Configuration (note: metachars need to be escaped):
-class regex:
-    # Standard grouping: (word1|word2)
-    pre = R"\("
-    sep = R"\|"
-    post = R"\)"
-    # Character classes: [gs]
-    pre2 = R"\["
-    post2 = R"\]"
-    sep2 = '' # dummy
-    # Make the last group, char class, or char optional:
-    opt = R"\?"
+# This optimizes a list of children by finding common sets of
+# prefixes, children lists, and postfixes (collectively "nodes")
+# such that all permutations of such are found as Switches
+# (aka "connections"). The children are fused together and the
+# pre-/postfixes are made into a Switch().
+#
+# Note that this has very limited results, including none on
+# --special=builtin_functions even. Most common cases that
+# are optimized occur when there's an easy catch like:
+#   compile rotate uncompile unrotate
+# (output would be: "(un)?(compile|rotate)"), so basically
+# two or more side-by-side Switches.
+def optimize(children):
+    global debug
+    if not OPTIMIZE or len(children) <= 1:
+        return debug.cancelcall("optimize", locals(), "children")
+    for i in children:
+        if not i.issimple(): break
+    else: 
+        return debug.cancelcall("optimize", locals(), "children")
+    debug.call("optimize", locals(), "children")
+    optimizeur = ConnectionMap(children)
+    other_connection_maps = optimizeur.split()
+    optimized = list()
+    for e in other_connection_maps:
+        #assert len(e) > 1
+        element = Switch()
+        element.children = [k for i in e.children for k in i]
+        if OPTIMIZE == -1: element.children = optimize(element.children)
+        if len(e.prefixes) > 1:
+            element.prefix  = Switch([i for i in e.prefixes if type(i) == str])
+            element.prefix.children.extend( (i for i in e.prefixes if type(i) != str) )
+            if OPTIMIZE == -1: element.prefix.children = optimize(element.prefix.children)
+        else: element.prefix = list(e.prefixes)[0]
+        if len(e.postfixes) > 1:
+            element.postfix = Switch([i for i in e.postfixes if type(i) == str])
+            element.postfix.children.extend((i for i in e.postfixes if type(i) != str))
+            if OPTIMIZE == -1: element.postfix.children = optimize(element.postfix.children)
+        else: element.postfix = list(e.postfixes)[0]
+        if debug.EXTRA_DEBUG: debug.dump(locals(), "element")
+        optimized.append(element)
+    if optimized:
+        debug.dump(locals(), "optimized")
+        if OPTIMIZE == -1:
+            children2 = optimize(optimized)
+        else:
+            children2 = optimized
+        children2.extend(optimizeur.connections) # what is left after making other groups of connections
+    else: children2 = optimizeur.connections
+    return debug.ret(children2)
 
 # Main class: represents a common prefix and postfix with options
 # for in-between stuff as "children".
@@ -542,11 +545,13 @@ class Switch(object):
                 and not len(self.postfix))
     def issingle(self):
         return (type(self.prefix) == str
+                and type(self.postfix) == str
                 and len(self.prefix) == 1
                 and not len(self.children)
                 and not len(self.postfix))
     def issimple(self):
         return (type(self.prefix) == str
+                and type(self.postfix) == str
                 and not len(self.children)
                 and not len(self.postfix))
     def hasopt(self):
@@ -748,6 +753,8 @@ class ReferencedSet(object):
 # contiguous-region-finding-algorithm required by optimize().
 # Relies on ReferencedSet for abstracting pairs of nodes with references.
 class ConnectionMap(object):
+    mapping = {None:0,True:1,False:2}
+    types = mapping.keys()
     def __init__(self, copy=None):
         assert type(self) == ConnectionMap
         if type(copy) == ConnectionMap:
@@ -807,19 +814,28 @@ class ConnectionMap(object):
         ]
         nodes.sort(key=lambda a: -a[2])
         return nodes
-    def canextend(self, other, current):
-        other = dict(other)
+    def tryextend(self, other, current):
         other[current[0]] = current[1:]
-        for i in (None,True,False):
+        if len(other) == 1: return True
+        added = list()
+        for i in self.types:
             if not i in other:
                 other[i] = (AlwaysMatch(),-1)
+                added.append(i)
         if len(other) == 3:
-            return self.hasconnection(other[None][0], other[True][0], other[False][0])
+            val = self.hasconnection(other[None][0], other[True][0], other[False][0])
+            for i in added:
+                del other[i]
+            if val:
+                return True
+            else:
+                del other[current[0]]
+                return False
         else: raise ValueError()
     def test_addition(self, matches, test):
         if debug.EXTRA_DEBUG: debug.call("ConnectionMap.test_addition", locals(), "matches", "test")
-        others = [i for i in (None,True,False) if i != test[0]]
-        mapping = {None:0,True:1,False:2}
+        mapping = self.mapping
+        others = [i for i in self.types if i != test[0]]
         curr = [None,None,None]
         curr[mapping[test[0]]] = test[1]
         for i in matches[others[0]]:
@@ -855,21 +871,18 @@ class ConnectionMap(object):
             if rest[0][2] == 1: break # nothing worthwhile left; all single referenced
             for i in rest:
                 if i[0] in initial: continue
-                if not initial:
-                    initial[i[0]] = i[1:]
-                elif self.canextend(initial, i):
-                    initial[i[0]] = i[1:]
+                self.tryextend(initial, i)
                 if len(initial) == 3: break
             else:
                 if debug.EXTRA_DEBUG: debug.prnt("not found continue!")
                 _i += 1; continue # couldn't find any matches; they are at < _i
             
             for k in initial:
-                refs_left[k] = [ initial[k][1]-1 ]
+                refs_left[k] = [ initial[k][1]-1 ] # one ref used already
                 matches[k]   = [ initial[k][0] ]
             if debug.EXTRA_DEBUG: debug.dump(locals(), "initial", "matches", "refs_left")
             
-            if refs_left[None]+refs_left[True]+refs_left[False] == 0:
+            if sum((len(i) for i in refs_left.values())) == 0:
                 _i += 1; continue # nothing worthwhile left
 
             _break = False
@@ -877,28 +890,31 @@ class ConnectionMap(object):
             for i in rest:
                 if i[1] == initial[i[0]][0]:
                     continue
+                # Take a ref whether we add it or not:
+                refs_taken = 1
+                other = (k for k in self.types if k != i[0])
+                for k in other:
+                    assert len(matches[k]) == len(refs_left[k])
+                    refs_taken *= len(matches[k])
+                refs_left[i[0]].append(i[2]-refs_taken)
+                for k in refs_left:
+                    if k == i[0]: continue
+                    refL = refs_left[k]
+                    for j in range(len(refL)):
+                        refL[j] -= 1
+                        if not refL[j]:
+                            if debug.EXTRA_DEBUG: debug.prnt("referenced break")
+                            _break = True; break
+                    if _break: break
+                # Test if we can add it:
                 if self.test_addition(matches, i):
                     matches[i[0]].append(i[1])
-                    refs_taken = 1
-                    other = (k for k in (None,True,False) if k != i[0])
-                    for k in other:
-                        assert len(matches[k]) == len(refs_left[k])
-                        refs_taken *= len(matches[k])
-                    refs_left[i[0]].append(i[2]-refs_taken)
-                    for k in refs_left:
-                        if k == i[0]: continue
-                        refL = refs_left[k]
-                        for j in range(len(refL)):
-                            refL[j] -= 1
-                            if not refL[j]:
-                                if debug.EXTRA_DEBUG: debug.prnt("referenced break")
-                                _break = True; break
-                        if _break: break
                     if debug.EXTRA_DEBUG: debug.dump(locals(), "matches", "refs_left")
-                    if _break: break
+                elif _break and debug.EXTRA_DEBUG: debug.dump(locals(), "refs_left")
+                if _break: break
             if debug.EXTRA_DEBUG: debug.prnt("end iter rest")
 
-            if (sum(( len(matches[k]) for k in matches )) == 3
+            if (sum( (len(matches[k]) for k in matches) ) == 3
                 or (len(matches[False]) + len(matches[None]) == 2
                     and not matches[False][0] and not matches[None][0])):
                 _i += 1; continue
@@ -911,19 +927,16 @@ class ConnectionMap(object):
                         i = self.makeconnection(
                           children, prefix, postfix
                         )
-                        try:
-                            self.removeconnection(i)
-                        except KeyError:
-                            debug.dump(locals(), "i", "self")
-                            raise
+                        self.removeconnection(i)
                         new.addconnection(i)
             result.append(new)
             debug.dump(locals(), "new")
-            nodes = self.getnodes()
+            nodes = self.getnodes() # it has now changed
         return debug.ret(result)
     def __repr__(self): return repr(self.__dict__)
 
 # Swaps escaping on metachars, so input can be regarded literally
+# FIXME: actually doesn't work well with backslashes
 def swap_escapes(char, string):
     spilt = string.split("\\"+char)
     for i in range(len(spilt)):
