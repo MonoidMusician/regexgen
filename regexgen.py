@@ -8,65 +8,6 @@ import fileinput # simple inputting of files and stdin
 
 OPTIMIZE=False
 
-builtin_functions = [
-  # Standard
-  'append', 'setsize', 'subvec', 'substr', 'contains', 'int', 'delete',
-  'int', 'num', 'keys', 'pop', 'size', 'streq', 'sort', 'sprintf',
-  'printf', 'print', 'find', 'split', 'rand', 'id', 'typeof', 'die',
-  'compile', 'call', 'caller', 'closure', 'bind',
-  # Regex
-  'regex.comp', 'regex.exec',
-  # Math
-  'math.sin', 'math.cos', 'math.exp', 'math.ln', 'math.sqrt',
-  'math.atan2', 'math.e', 'math.pi',
-  # Bits
-  'bits.sfld', 'bits.fld', 'bits.setfld', 'bits.buf',
-  # Unicode
-  'utf8.chstr', 'utf8.strc', 'utf8.substr', 'utf8.size', 'utf8.validate',
-  # I/O
-  'io.open', 'io.close', 'io.read', 'io.write', 'io.seek', 'io.tell',
-  'io.readln', 'io.stat', 'io.readfile', 'io.load_nasal',
-  # Threading
-  'thread.newthread', 'thread.newlock', 'thread.lock', 'thread.unlock',
-  'thread.newsem', 'thread.semdown', 'thread.semup',
-  # Unix/commandline interaction
-  'unix.pipe', 'unix.fork', 'unix.dup2', 'unix.exec', 'unix.waitpid',
-  'unix.opendir', 'unix.readdir', 'unix.closedir', 'unix.time', 'unix.chdir',
-  'unix.environ',
-  # SQLite databases
-  'sqlite.open', 'sqlite.close', 'sqlite.prepare', 'sqlite.exec', 'sqlite.finalize',
-  # FlightGear/SimGear
-  'setlistener', 'cmdarg', 'removelistener', 'fgcommand', 'addcommand',
-  'removecommand', 'logprint', 'printlog', 'setprop', 'getprop',
-  'interpolate', 'settimer', 'maketimer', 'isa', 'defined'
-]
-
-keywords = [
-  'if', 'elsif', 'else', 'for', 'while', 'foreach', 'forindex',
-]
-keyword_regex = R'break(\s+[A-Z]{2,16})?|continue(\s+[A-Z]{2,16})?|return|([A-Z]{2,16})(?=\s*;([^\)#;]*?;){0,2}[^\)#;]*?\))'
-
-reserved_id = [
-  'me', 'arg', 'parents'
-]
-
-operators = [
-  '!', '*', '-', '+', '~', '/', '==', '=', '!=', '<=',
-  '>=', '<', '>', '?', ':', '*=', '/=', '+=',
-  '-=', '~=', '...'
-]
-operator_words = [ 'and', 'or' ]
-
-optimizeable = [
-  "compress", "uncompress",
-  "optimize", "unoptimize"
-]
-
-complex_optimizeable = [
-  "iok",  "iuk",  "iyk",  "itk",
-  "ioki", "iuki", "iyki", "itki"
-]
-
 # Because we are often comparing lists, i.e. positional, make sure
 # we have a fixed ordering. Additionally, this puts smallest first,
 # as expected by both filter_list and Switch.__init__
@@ -1023,7 +964,6 @@ def main(arg=sys.argv[1:]):
     if hasopt(arg, "EXPAND_SINGLES", "s"):
         Switch.EXPAND_SINGLES = True
     UNPARSE = hasopt(arg, "UNPARSE", None)
-    special = hasopt(arg, "special", "s", True)
     filelist = hasopt(arg, "file", "f", True)
     evals    = hasopt(arg, "eval", "e", True)
     regexoutput = hasopt(arg, "regex-out", None, True)
@@ -1033,13 +973,6 @@ def main(arg=sys.argv[1:]):
     try: word_list.remove("--")
     except ValueError: pass
     
-    for s in special:
-        word_list.extend({
-            "builtin_functions": builtin_functions,
-            "keywords": keywords,
-            "operators": operators,
-            "optimizeable": optimizeable
-        }[s])
     for e in evals:
         if ECHO: print(e)
         word_list.extend(eval(e))
