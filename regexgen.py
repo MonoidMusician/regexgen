@@ -4,6 +4,8 @@ import fileinput # simple inputting of files and stdin
                  # (used when we don't have a wordlist
                  # and for each --file=/-f argument).
 
+#str = unicode
+
 OPTIMIZE=False
 
 builtin_functions = [
@@ -55,6 +57,16 @@ operators = [
 ]
 operator_words = [ 'and', 'or' ]
 
+optimizeable = [
+  "compress", "uncompress",
+  "optimize", "unoptimize"
+]
+
+complex_optimizeable = [
+  "iok",  "iuk",  "iyk",  "itk",
+  "ioki", "iuki", "iyki", "itki"
+]
+
 # Because we are often comparing lists, i.e. positional, make sure
 # we have a fixed ordering. Additionally, this puts smallest first,
 # as expected by both filter_list and Switch.__init__
@@ -91,7 +103,7 @@ class Debug:
             if not sym: sym = local.keys()
             for s in sym:
                 assert type(s) == str
-                comp += ("; " if comp != " " else "") + s + " = " + repr(local[s])
+                comp += ("; " if comp != " " else str()) + s + " = " + repr(local[s])
         else: comp = str()
         print(self._str+name+"():"+comp)
         self += 1
@@ -102,11 +114,11 @@ class Debug:
     # Dump local symbols
     def dump(self, local, *sym):
         if not self.DEBUG: return
-        comp = ""
+        comp = str()
         if not sym: sym = local.keys()
         for s in sym:
             assert type(s) == str
-            comp += ("; " if comp else "") + s + " = " + repr(local[s])
+            comp += ("; " if comp else str()) + s + " = " + repr(local[s])
         print(self._str+comp)
     # Print a return value; passes value back for syntax like:
     #   return debug.ret(...)
@@ -119,6 +131,7 @@ class Debug:
     #   debug.tailcall()
     #   return fn(...)
     def tailcall(self):
+        if not self.DEBUG: return
         self += -1
         self._str += "return "
     # In case of a degenerate case or such after a tail call,
@@ -128,17 +141,15 @@ class Debug:
     # Returns the "val"; doesn't print anything if not following
     # a declared tail call.
     def cancelcall(self, name, local, sym=None):
-        tailcall = (self.DEBUG and self._str[-7:] == "return ")
         if sym is None:
             val = local
-            if tailcall:
-                print(self._str+name+"(): return "+repr(val))
         else:
             val = local[sym]
-            if tailcall:
-                print(self._str+name+"(): return "+sym+" = "+repr(val))
-        self += 1 #immediate call... 
-        self += -1 #... and return
+        if self.DEBUG:
+            if self._str[-7:] == "return ":
+                print(self._str+name+"(): return "+(sym+" = " if sym else str())+repr(val))
+            self += 1 #immediate call... 
+            self += -1 #... and return
         return val
 
 debug = Debug() # singleton
@@ -170,13 +181,15 @@ def chop(rev, word_list):
     else:
         for i in range(len(word_list)):
             word_list[i] = word_list[i][1:]
+def get_ends(string, sz):
+    return string[:sz],string[-sz:]
 
 # This groups words together based on common prefixes/postfixes,
 # aiming to capture several groups of words with the most in common.
 # Takes a list of strings; returns a list of Switches.
 def filter_list(wordlist_left):
     if (len(wordlist_left) <= 1 or
-        (len(wordlist_left) == 2 and '' in wordlist_left)):
+        (len(wordlist_left) == 2 and str() in wordlist_left)):
         return [Switch(e) for e in wordlist_left]
     # Strangely enough, if this changes to a regular sort algorithm,
     # (i.e. no lambda), this fails to group "for" with "foreach" and
@@ -188,8 +201,6 @@ def filter_list(wordlist_left):
     wordlist_left.sort(sort_pred)
     global debug
     debug.call("filter_list", locals(), "wordlist_left")
-    def get_ends(string, sz):
-        return string[:sz],string[-sz:]
     children = list()
     prefixes = dict()
     postfixes = dict()
@@ -197,6 +208,8 @@ def filter_list(wordlist_left):
     # to get the longest possible prefix or postfix (the one with more
     # matches is used).
     max_size = len(wordlist_left[-1])
+    # Existing similar prefixes/postfixes
+    existing = [None,None]
     # This is the actual countdown
     for i in reversed(range(1,max_size)):
         #if debug.EXTRA_DEBUG: debug.call("find_matches", locals(), "i")
@@ -219,20 +232,14 @@ def filter_list(wordlist_left):
                 if pre == _pre: matches[0].append(e)
                 if post == _post: matches[1].append(e)
             #if debug.EXTRA_DEBUG: debug.ret(matches)
-            existing = [None,None]
-                # If there's already a similar prefix (i.e. this is a prefix
+            # If there's already a similar prefix (i.e. this is a prefix
             # of the prefix, or sub-prefix), add this to its list, as this
             # current prefixe's items will be handled later
-            for pre in prefixes:
-                if pre[:i] == _pre:
-                    existing[0] = prefixes[pre]
-                    if debug.EXTRA_DEBUG: debug.prnt("Match found (pre): "+repr(pre)+" for "+repr(_pre))
-                    break
-            for post in postfixes:
-                if post[-i:] == _post:
-                    existing[1] = postfixes[post]
-                    if debug.EXTRA_DEBUG: debug.prnt("Match found (post): "+repr(post)+" for "+repr(_post))
-                    break
+            try: existing[0] = prefixes[_pre[0]]
+            except KeyError: existing[0] = None
+            try: existing[1] = postfixes[_post[-1]]
+            except KeyError: existing[1] = None
+
             if len(matches[0]) + len(matches[1]) == 2:
                 j += 1; continue
             # Take the one with more items
@@ -241,23 +248,24 @@ def filter_list(wordlist_left):
                 for e in match:
                     wordlist_left.remove(e)
                 if existing[0]:
-                    del prefixes[pre]
                     existing[0].extend(match)
                     match = existing[0]
-                prefixes[_pre] = match
+                else:
+                    prefixes[_pre[0]] = match
+                    children.append(match)
                 if debug.EXTRA_DEBUG: debug.dump(locals(), "_pre", "match")
             else:
                 match = matches[1]
                 for e in match:
                     wordlist_left.remove(e)
                 if existing[1]:
-                    del postfixes[post]
                     existing[1].extend(match)
                     match = existing[1]
-                postfixes[_post] = match
+                else:
+                    postfixes[_post[-1]] = match
+                    children.append(match)
                 if debug.EXTRA_DEBUG: debug.dump(locals(), "_post", "match")
             #if debug.EXTRA_DEBUG: debug.dump(locals(), "prefixes", "postfixes", "children")
-            if not match in children: children.append(match)
         #if debug.EXTRA_DEBUG: debug.ret(children)
         if not wordlist_left: break
     else: children += ([e] for e in wordlist_left)
@@ -276,8 +284,8 @@ class regex:
     # Character classes: [gs]
     pre2 = R"\["
     post2 = R"\]"
-    sep2 = "" # dummy
-    # Make the last group or char optional:
+    sep2 = str() # dummy
+    # Make the last group, char class, or char optional:
     opt = R"\?"
 
 # Main class: represents a common prefix and postfix with options
@@ -287,18 +295,14 @@ class regex:
 #    prefix: str or Switch
 #    children: list of Switches
 #    postfix: str or Switch
-class Switch:
+class Switch(object):
+    EXPAND_SINGLES=False
     def __init__(self, word_list=None):
         # Shortcuts:
         if word_list is None: return
         if type(word_list) == str: word_list = (word_list,)
-        if not word_list:
-            self.prefix = str()
-            self.children = list()
-            self.postfix = str()
-            return
-        elif len(word_list) == 1:
-            self.prefix = word_list[0]
+        if len(word_list) <= 1:
+            self.prefix = word_list[0] if word_list else str()
             self.children = list()
             self.postfix = str()
             return
@@ -321,12 +325,27 @@ class Switch:
             (postfix,s) = similar(True, middle, postfix)
             if not s: break
         debug.dump(locals(), "middle")
+        
+        self.prefix = prefix
+        self.postfix = postfix
         # And return to filter_list to sort through what's left
         if len(prefix) or len(postfix):
             self.children = filter_list(middle)
+            # If we aggresively optimized down to one child, merge it with ourselves
+            if len(self.children) == 1:
+                child = self.children[0]
+                parent = child
+                while type(parent.prefix) == Switch:
+                    parent = parent.prefix
+                parent.prefix = prefix + parent.prefix
+                parent = child
+                while type(parent.postfix) == Switch:
+                    parent = parent.postfix
+                parent.postfix = parent.postfix + postfix
+                self.prefix = child.prefix
+                self.postfix = child.postfix
+                self.children = child.children
         else: self.children = [Switch(m) for m in middle]
-        self.prefix = prefix
-        self.postfix = postfix
         debug.ret(self)
     def joinwpre_post(self, pre, post):
         j = self.join()
@@ -350,12 +369,13 @@ class Switch:
             return pre+j+post
         else: return pre+regex.pre+j+regex.post+post
     def join(self):
+        if self.isopt(): return str()
         #debug.call("Switch.join", locals(), "self")
         children = self.children
         # For simple lists like c(ompile|aller) or (ha|po)t,
         # add the prefix or postfix to each one instead of
         # using grouping
-        if (len(children) > 1
+        if (self.EXPAND_SINGLES and len(children) > 1
            and type(self.prefix) == str and type(self.postfix) == str
            and len(self.prefix)+len(self.postfix) == 1
            and not self.hassingle()
@@ -387,9 +407,69 @@ class Switch:
         if middle is None:
             middle = regex.pre+regex.sep.join(e.join() for e in children)+regex.post
         #return debug.ret(prefix+middle+postfix)
-        if type(self.prefix) == str and type(self.postfix) == str:
-            return self.prefix+middle+self.postfix
-        return self.postfix.joinwpre_post(self.prefix.joinwpre_post(str(), middle), str())
+        if type(self.prefix) == str:
+            ret = self.prefix+middle
+        elif self.prefix.issimple():
+            ret = self.prefix.prefix+middle
+        else:
+            ret = self.prefix.joinwpre_post(str(), middle)
+        if type(self.postfix) == str:
+            ret += self.postfix
+        elif self.postfix.issimple():
+            ret += self.postfix.prefix
+        else:
+            ret = self.postfix.joinwpre_post(ret, str())
+        return ret
+    def permute(self):
+        if self.issimple(): return [self.prefix]
+        result = list()
+        if type(self.prefix) == str:
+            prefixes = [self.prefix]
+        else: prefixes = self.prefix.permute()
+        if type(self.postfix) == str:
+            postfixes = [self.postfix]
+        else: postfixes = self.postfix.permute()
+        
+        for j in self.children:
+            j = j.permute()
+            result.extend((pre+mid+post
+                           for pre in prefixes
+                           for mid in j
+                           for post in postfixes))
+        return result
+    def whole_match(self, string):
+        if self.issimple(): return (self.prefix == string)
+        start = 0; end = 0
+        if type(self.prefix) == str:
+            start = len(self.prefix)
+            if len(string) < start: return False
+            if string[:start] != self.prefix: return False
+        else:
+            start = self.prefix.match(string, 1)
+            if not start: return False
+        string = string[start:]
+        if type(self.postfix) == str:
+            end = -len(self.postfix)
+            if len(string) < -end: return False
+            if string[:end] != self.postfix: return False
+        else:
+            end = self.postfix.match(string, -1)
+            if not end: return False
+        string = string[:end]
+        for ch in children:
+            if ch.whole_match(string): break
+        else: return False
+        return True
+    def match(self, string, direction=0):
+        if not direction:
+            if self.whole_match(string):
+                return len(string)
+            else: return None
+        if self.issimple():
+            if direction > 0:
+                return string.startswith(self.prefix) or None
+            else:
+                return string.endswith(self.prefix) or None
     def __repr__(self):
         if self.isopt(): return '/opt'
         elif self.issimple(): return repr(self.prefix)
@@ -407,6 +487,7 @@ class Switch:
         return self.__dict__.__eq__(other.__dict__)
     def isopt(self):
         return (type(self.prefix) == str
+                and type(self.postfix) == str
                 and len(self.prefix) == 0
                 and not len(self.children)
                 and not len(self.postfix))
@@ -471,12 +552,14 @@ def optimize(children):
         for i in e.children: element.children.extend(i)
         element.prefix  = Switch([i for i in e.prefixes if type(i) == str])
         element.postfix = Switch([i for i in e.postfixes if type(i) == str])
-        element.prefix.children  += [i for i in e.prefixes if type(i) != str]
-        element.postfix.children += [i for i in e.postfixes if type(i) != str]
+        element.prefix.children.extend( (i for i in e.prefixes if type(i) != str) )
+        element.postfix.children.extend( (i for i in e.postfixes if type(i) != str) )
         debug.dump(locals(), "element")
         optimized.append(element)
-    #if optimized: children2 += optimize(optimized)
-    if optimized: children2.extend(optimized)
+    if optimized:
+        if OPTIMIZE == -1:
+            children2.extend(optimize(optimized))
+        else: children2.extend(optimized)
     debug.dump(locals(), "optimized")
     return debug.ret(children2)
 
@@ -662,29 +745,40 @@ class ConnectionMap(object):
             else:
                 if debug.EXTRA_DEBUG: debug.prnt("not found continue!")
                 _i += 1; continue # couldn't find any matches; they are at < _i
-
-            if debug.EXTRA_DEBUG: debug.dump(locals(), "initial")
-            for k in initial:
-                refs_left[k] = [ initial[k][1] ]
-                matches[k]   = [ initial[k][0] ]
             
-            if refs_left[None]+refs_left[True]+refs_left[False] == 3:
+            for k in initial:
+                refs_left[k] = [ initial[k][1]-1 ]
+                matches[k]   = [ initial[k][0] ]
+            if debug.EXTRA_DEBUG: debug.dump(locals(), "initial", "matches", "refs_left")
+            
+            if refs_left[None]+refs_left[True]+refs_left[False] == 0:
                 _i += 1; continue # nothing worthwhile left
 
             _break = False
+            if debug.EXTRA_DEBUG: debug.prnt("start iter rest")
             for i in rest:
                 if i[1] == initial[i[0]][0]:
                     continue
                 if disc.test_addition(matches, i):
                     matches[i[0]].append(i[1])
-                    for refL in refs_left.values():
+                    refs_taken = 1
+                    other = (k for k in (None,True,False) if k != i[0])
+                    for k in other:
+                        assert len(matches[k]) == len(refs_left[k])
+                        refs_taken *= len(matches[k])
+                    refs_left[i[0]].append(i[2]-refs_taken)
+                    for k in refs_left:
+                        if k == i[0]: continue
+                        refL = refs_left[k]
                         for j in range(len(refL)):
                             refL[j] -= 1
                             if not refL[j]:
-                                if debug.EXTRA_DEBUG: debug.prnt("referenced break!")
+                                if debug.EXTRA_DEBUG: debug.prnt("referenced break")
                                 _break = True; break
                         if _break: break
+                    if debug.EXTRA_DEBUG: debug.dump(locals(), "matches", "refs_left")
                     if _break: break
+            if debug.EXTRA_DEBUG: debug.prnt("end iter rest")
 
             if (sum(( len(matches[k]) for k in matches )) == 3
                 or (len(matches[False]) + len(matches[None]) == 2
@@ -761,16 +855,129 @@ def hasopt(arg, longn, shortn, argument=False):
         elif i == shortn:
             idx = arg.index(i)
             arg.remove(i)
-            ret.append(arg.pop(idx))
+            try:
+                ret.append(arg.pop(idx))
+            except IndexError:
+                ret.append(str())
             was_short = True
     return ret
 
+class Parser:
+    def __init__(self, string):
+        self._i = 0
+        self._string = string
+        self._sz = len(string)
+    def char(self,offset=0):
+        i = self._i + offset
+        return self._string[i] if i < self._sz else None
+    def incr(self,step=1): self._i += step
+    def end(self): return self._i >= self._sz
+    def shouldexit(self):
+        return (self.end() or self.char() in (")","|"))
+    def _getswitches(self):
+        i = self._i; _str = self._string[i:]
+        debug.call("Parser._getswitches", locals(), "i", "_str")
+        result = list()
+        while not self.end():
+            if self.char() == ")": break
+            elif result:
+                if self.char() == "?":
+                    result[-1].children.append(Switch(list()))
+                    self.incr()
+                    if self.end(): break
+                assert self.char() == "|"
+                self.incr()
+            result.append(self._getswitch())
+        return debug.ret(result)
+    # This allows read-in of complex Switches
+    def _getswitch(self):
+        i = self._i; _str = self._string[i:]
+        debug.call("Parser._getswitch", locals(), "i", "_str")
+        result = None
+        lits = list()
+        while not self.end():
+            lits.append(self._getsimple())
+            if self.shouldexit(): break
+        if len(lits) == 1: return debug.ret(lits[0])
+        result = Switch()
+        if len(lits) == 3:
+            result.prefix = lits[0]
+            assert not lits[1].prefix
+            result.children = lits[1].children
+            assert not lits[2].prefix
+            result.postfix = lits[2]
+            result.postfix.prefix = lits[1].postfix
+        else:
+            assert len(lits) == 2
+            result.prefix = Switch(lits[0].prefix)
+            result.children = lits[0].children
+            assert not lits[1].prefix
+            result.postfix = lits[1]
+            result.postfix.prefix = lits[0].postfix
+        return debug.ret(result)
+    def _getsimple(self):
+        i = self._i; _str = self._string[i:]
+        debug.call("Parser._getsimple", locals(), "i", "_str")
+        result = Switch(list())
+        while not self.end():
+            if (self.char() in ("(",")","|","[")
+                or (self.char() != "\\"
+                   and self.char(1) == "?")): break
+            if self.char() == "\\":
+                self.incr()
+            result.prefix += self.char()
+            self.incr()
+        if self.shouldexit(): return debug.ret(result)
+        if self.char() == "(":
+            self.incr()
+            result.children = self._getswitches()
+            assert self.char() == ")"
+            if self.char(1) == "?":
+                result.children.append(Switch(list()))
+                assert result.children[-1].isopt()
+                self.incr()
+            self.incr()
+        elif self.char() == "[":
+            self.incr()
+            while not self.end():
+                if self.char() == "]": break
+                result.children.append(Switch(self.char()))
+                self.incr()
+            assert self.char() == "]"
+            if self.char(1) == "?":
+                result.children.append(Switch(list()))
+                assert result.children[-1].isopt()
+                self.incr()
+            self.incr()
+        elif self.char(1) == "?":
+            result.children.append(Switch(self.char()))
+            result.children.append(Switch(list()))
+            self.incr(2)
+        else: assert self.end()
+        if self.shouldexit(): return debug.ret(result)
+        while not self.end():
+            if (self.char() in ("(",")","|","[")
+                or (self.char() != "\\"
+                   and self.char(1) == "?")): break
+            if self.char() == "\\":
+                self.incr()
+            result.postfix += self.char()
+            self.incr()
+        return debug.ret(result)
+    def run(self):
+        _str = self._string
+        debug.call("Parser.run", locals(), "_str")
+        self._i = 0
+        debug.tailcall()
+        return self._getswitches()
+
 def main(arg=sys.argv[1:]):
     global debug
+    global OPTIMIZE
     PRINT_RESULT = False
     XML_ESCAPE = False
     ECHO = False
-    if hasopt(arg, "EXTRA_DEBUG", "e"):
+    if hasopt(arg, "EXTRA_DEBUG", "D"):
         debug.DEBUG = True
         debug.EXTRA_DEBUG = True
     if hasopt(arg, "DEBUG", "d"):
@@ -782,42 +989,65 @@ def main(arg=sys.argv[1:]):
     if hasopt(arg, "ECHO", None):
         ECHO = True
     if hasopt(arg, "OPTIMIZE", "o"):
-        global OPTIMIZE
         OPTIMIZE = True
+    if hasopt(arg, "RE_OPTIMIZE", "O"):
+        OPTIMIZE = -1
+    if hasopt(arg, "EXPAND_SINGLES", "s"):
+        Switch.EXPAND_SINGLES = True
+    UNPARSE = hasopt(arg, "UNPARSE", None)
     special = hasopt(arg, "special", "s", True)
     filelist = hasopt(arg, "file", "f", True)
-    if hasopt(arg, None, ""): filelist.append("-")
+    evals    = hasopt(arg, "eval", "e", True)
+    regexoutput = hasopt(arg, "regex-out", None, True)
+    if hasopt(arg, None, str()): filelist.append("-")
     
     word_list = arg[:]
-    if "--" in word_list:
-        word_list.remove("--")
+    try: word_list.remove("--")
+    except ValueError: pass
     
     for s in special:
-        word_list += {
+        word_list.extend({
             "builtin_functions": builtin_functions,
             "keywords": keywords,
-            "operators": operators
-        }[s]
+            "operators": operators,
+            "optimizeable": optimizeable
+        }[s])
+    for e in evals:
+        if ECHO: print(e)
+        word_list.extend(eval(e))
     
     if filelist or not word_list:
         for line in fileinput.input(filelist):
             line = line.rstrip() # strip trailing spaces and \n
             if ECHO and line: print(line)
             if line: word_list.append(line) # ignore blank lines
-    word_list = [i.replace("\\", "\\\\") for i in set(word_list)] # protect against duplicates, escape backslashes
     
-    result = filter_list(word_list)
-    if PRINT_RESULT: print(repr(result))
-    result = regex.sep.join(sw.join() for sw in result)
-    
-    for char in (".","(","|",")","?","[","]","+","*","{","}"):
-        result = swap_escapes(char, result)
-    if XML_ESCAPE:
-        result = result.replace("&", "&amp;")
-        result = result.replace("<", "&lt;")
-        result = result.replace(">", "&gt;")
-    
-    return result
+    if UNPARSE:
+        result = Parser("|".join(word_list)).run()
+        if PRINT_RESULT:
+            print(repr(result))
+        permutations = list()
+        for i in result:
+            permutations.extend(i.permute())
+        return "\n".join(permutations)
+    else:
+        word_list = [i.replace("\\", "\\\\") for i in set(word_list)] # protect against duplicates, escape backslashes
+        result = filter_list(word_list)
+        if PRINT_RESULT: print(repr(result))
+        result = regex.sep.join(sw.join() for sw in result)
+        
+        for char in (".","(","|",")","?","[","]","+","*","{","}"):
+            result = swap_escapes(char, result)
+        if XML_ESCAPE:
+            result = result.replace("&", "&amp;")
+            result = result.replace("<", "&lt;")
+            result = result.replace(">", "&gt;")
+        for outfile in regexoutput:
+            #with f as open(outfile, 'w'):
+            f = open(outfile, 'w')
+            if ECHO: print(f)
+            f.write(result+"\n")
+        return result
 
 if __name__ == "__main__":
     print(main())
