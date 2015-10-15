@@ -70,7 +70,9 @@ complex_optimizeable = [
 # Because we are often comparing lists, i.e. positional, make sure
 # we have a fixed ordering. Additionally, this puts smallest first,
 # as expected by both filter_list and Switch.__init__
-def sort_pred(a,b): return cmp(len(a), len(b)) or cmp(a,b)
+def dblsort(l):
+    l.sort()
+    l.sort(key=len)
 
 # Helper class for handling algorithm debugging.
 #
@@ -205,7 +207,7 @@ class regex:
 def filter_list(wordlist_left):
     if len(wordlist_left) <= 1:
         return [Switch(e) for e in wordlist_left]
-    wordlist_left.sort(sort_pred)
+    dblsort(wordlist_left)
     if not wordlist_left[0]:
         wordlist_left.pop(0)
         children = filter_list(wordlist_left)
@@ -359,7 +361,7 @@ class Switch(object):
         # Else we take the long way:
         global debug
         # Sort: shortest first with fixed order
-        word_list.sort(sort_pred)
+        dblsort(word_list)
         debug.call("Switch.__init__", locals(), "word_list")
         smallest = word_list[0]
         middle = list(word_list)
@@ -732,19 +734,20 @@ class ReferencedSet(object):
                 return self.other_refs[1][index]
             except ValueError: return 0
     def getreferenced(self):
-        referenced = zip(*self.other_refs)
+        referenced = list(zip(*self.other_refs))
         referenced += ([key, self.hashable_refs[key]] for key in self.hashable_refs)
-        if not referenced: return referenced
+        if not referenced: return
         referenced.sort(key=lambda a: a[1])
-        return zip(*referenced)[0]
+        for r in referenced:
+            yield r[0]
     __iadd__ = add
     __isub__ = remove
     __delitem__ = remove
     __getitem__ = references
-    def __iter__(self): return iter(self.getreferenced())
+    def __iter__(self): return self.getreferenced()
     def __len__(self): return len(self.other_refs[0])+len(self.hashable_refs)
     def __repr__(self):
-        referenced = zip(*self.other_refs)
+        referenced = list(zip(*self.other_refs))
         referenced += ([key, self.hashable_refs[key]] for key in self.hashable_refs)
         referenced.sort(key=lambda a: a[1])
         return "{"+", ".join([repr(a[0])+": "+repr(a[1]) for a in referenced])+"}"
